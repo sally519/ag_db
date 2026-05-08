@@ -24,6 +24,7 @@ router = APIRouter()
 
 
 def _elapsed_seconds(task) -> float:
+    """根据任务创建时间和更新时间计算已耗时秒数。"""
     return round((task.updated_at - task.created_at).total_seconds(), 2)
 
 
@@ -32,6 +33,11 @@ def create_ingest_task(
     request: DocumentIngestRequest,
     service: DocumentIngestTaskService = Depends(get_document_ingest_task_service),
 ) -> DocumentIngestTaskCreateResponse:
+    """创建文档入库后台任务。
+
+    该接口只负责登记任务并立即返回任务编号，
+    真正的文档读取、切块、向量化和入库逻辑在后台线程中执行。
+    """
     task = service.create_task(request)
     return DocumentIngestTaskCreateResponse(
         task_id=task.task_id,
@@ -50,6 +56,7 @@ def get_ingest_task_status(
     request: DocumentIngestTaskStatusRequest,
     service: DocumentIngestTaskService = Depends(get_document_ingest_task_service),
 ) -> DocumentIngestTaskStatusResponse:
+    """查询后台入库任务当前状态。"""
     try:
         task = service.get_task(request.task_id)
     except IngestTaskNotFoundError as exc:
@@ -96,6 +103,11 @@ def search_documents(
     request: DocumentSearchRequest,
     service: DocumentSearchService = Depends(get_document_search_service),
 ) -> DocumentSearchResponse:
+    """执行文档查询。
+
+    当前查询逻辑会在所有可搜索集合中做召回，
+    然后对召回候选统一重排，最后返回重排后的结果。
+    """
     hits = service.search(
         query=request.query,
         recall_top_k=request.recall_top_k,

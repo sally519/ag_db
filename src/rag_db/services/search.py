@@ -7,7 +7,14 @@ from rag_db.services.reranker import EmbeddingReranker
 
 
 class DocumentSearchService:
-    """Vector recall plus rerank service."""
+    """文档查询服务。
+
+    当前查询流程分为两段：
+    1. 在所有可搜索集合中做向量召回
+    2. 对合并后的候选统一做重排
+
+    这样既能隐藏底层集合细节，也能为后续多知识库检索保留扩展空间。
+    """
 
     def __init__(
         self,
@@ -16,6 +23,7 @@ class DocumentSearchService:
         embedding_client: EmbeddingClient,
         reranker: EmbeddingReranker,
     ) -> None:
+        """注入召回、向量化和重排依赖。"""
         self.retrieval_pipeline = retrieval_pipeline
         self.embedding_client = embedding_client
         self.reranker = reranker
@@ -27,6 +35,12 @@ class DocumentSearchService:
         recall_top_k: int = 10,
         rerank_top_n: int = 3,
     ) -> list[SearchResult]:
+        """执行一次完整查询。
+
+        注意当前 `recall_top_k` 的语义是全局召回上限：
+        每个集合先取自己的候选，最终会汇总后再裁剪为全局前 `recall_top_k` 条，
+        然后进入重排阶段。
+        """
         query_embeddings, _, _ = self.embedding_client.embed_queries([query])
         collections = self.retrieval_pipeline.list_searchable_collections()
         normalized: list[SearchResult] = []
@@ -54,4 +68,5 @@ class DocumentSearchService:
 
 
 def _distance_to_similarity(distance: float) -> float:
+    """将距离分数转换为越大越好的相似度分数。"""
     return max(0.0, 1.0 - float(distance))

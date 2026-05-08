@@ -7,6 +7,11 @@ from typing import Any
 
 @dataclass(slots=True)
 class SourceDocument:
+    """统一表示加载后的源文档。
+
+    该对象承载文档原始来源信息以及已经抽取好的纯文本，
+    是后续切块、去重和向量化流程的基础输入。
+    """
     source: str
     source_type: str
     file_name: str
@@ -16,6 +21,7 @@ class SourceDocument:
 
 @dataclass(slots=True)
 class DocumentChunk:
+    """表示单个文档块及其附属元数据。"""
     chunk_id: str
     document_id: str
     content: str
@@ -24,6 +30,7 @@ class DocumentChunk:
 
 @dataclass(slots=True)
 class DuplicateDocumentMatch:
+    """表示重复文档或高相似文档命中结果。"""
     document_id: str
     chunk_ids: list[str]
     content_hash: str
@@ -34,6 +41,7 @@ class DuplicateDocumentMatch:
 
 @dataclass(slots=True)
 class IngestionResult:
+    """表示一次文档入库流程的最终结果。"""
     document_id: str
     collection_name: str
     source: str
@@ -55,6 +63,12 @@ class IngestionResult:
 
 @dataclass(slots=True)
 class SearchResult:
+    """表示一次检索或重排后的候选结果。
+
+    `score` 字段在不同阶段含义不同：
+    - 召回阶段通常表示原始距离或转换后的相似度
+    - 重排阶段通常表示最终排序分数
+    """
     chunk_id: str
     score: float
     content: str
@@ -67,6 +81,7 @@ class SearchResult:
 
 @dataclass(slots=True)
 class IngestTaskState:
+    """表示异步入库任务在某一时刻的状态快照。"""
     task_id: str
     status: str
     progress_percent: int

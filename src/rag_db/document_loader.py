@@ -11,9 +11,18 @@ from rag_db.models import SourceDocument
 
 
 class DocumentLoader:
-    """Loads source content from local files or HTTP(S) URLs."""
+    """负责把不同来源的文档统一加载为纯文本。
+
+    当前支持三类输入：
+    - 本地文件路径
+    - `file://` 形式的文件 URL
+    - HTTP/HTTPS 远程文件地址
+
+    输出统一为 `SourceDocument`，供后续切块、去重和向量化流程复用。
+    """
 
     def load(self, source: str) -> SourceDocument:
+        """根据来源类型选择本地或远程加载逻辑。"""
         parsed = urlparse(source)
         if parsed.scheme in {"http", "https"}:
             return self._load_remote(source, parsed)
@@ -25,6 +34,7 @@ class DocumentLoader:
         return self._load_local(Path(source).expanduser())
 
     def _load_remote(self, source: str, parsed) -> SourceDocument:
+        """下载远程文件并抽取文本内容。"""
         request = Request(source, headers={"User-Agent": "rag-db/0.1"})
         with urlopen(request, timeout=60) as response:
             payload = response.read()
@@ -40,6 +50,7 @@ class DocumentLoader:
         )
 
     def _load_local(self, path: Path) -> SourceDocument:
+        """读取本地文件并抽取文本内容。"""
         if not path.exists():
             raise FileNotFoundError(f"source file does not exist: {path}")
         payload = path.read_bytes()
@@ -54,6 +65,7 @@ class DocumentLoader:
         )
 
     def _extract_text(self, payload: bytes, *, file_name: str, media_type: str | None) -> str:
+        """按文件后缀或媒体类型选择文本抽取策略。"""
         suffix = Path(file_name).suffix.lower()
         if suffix == ".pdf" or media_type == "application/pdf":
             return _extract_pdf_text(payload)
@@ -67,6 +79,7 @@ class DocumentLoader:
 
 
 def _extract_pdf_text(payload: bytes) -> str:
+    """从 PDF 二进制内容中抽取可读文本。"""
     from pypdf import PdfReader
 
     reader = PdfReader(BytesIO(payload))
@@ -78,6 +91,7 @@ def _extract_pdf_text(payload: bytes) -> str:
 
 
 def _extract_html_text(payload: bytes) -> str:
+    """从 HTML 中剥离标签，仅保留可见文本。"""
     parser = _HTMLTextExtractor()
     parser.feed(_decode_text(payload))
     text = parser.get_text().strip()
@@ -87,6 +101,7 @@ def _extract_html_text(payload: bytes) -> str:
 
 
 def _decode_text(payload: bytes) -> str:
+    """按常见中文和 UTF 编码顺序尝试解码文本。"""
     for encoding in ("utf-8", "utf-8-sig", "gb18030"):
         try:
             return payload.decode(encoding)
@@ -96,14 +111,22 @@ def _decode_text(payload: bytes) -> str:
 
 
 class _HTMLTextExtractor(HTMLParser):
+    """最小 HTML 文本提取器。
+
+    这里只关心提取正文文本，不做复杂的 DOM 语义分析。
+    """
+
     def __init__(self) -> None:
+        """初始化内部文本缓冲区。"""
         super().__init__()
         self._parts: list[str] = []
 
     def handle_data(self, data: str) -> None:
+        """收集非空文本节点。"""
         stripped = data.strip()
         if stripped:
             self._parts.append(stripped)
 
     def get_text(self) -> str:
+        """将收集到的文本按换行拼接为单个字符串。"""
         return "\n".join(self._parts)

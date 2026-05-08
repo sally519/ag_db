@@ -10,18 +10,24 @@ from rag_db.services.document_ingestion import DocumentIngestionService
 
 
 class IngestTaskNotFoundError(KeyError):
-    """Raised when a task id does not exist."""
+    """查询不存在的任务编号时抛出。"""
 
 
 class DocumentIngestTaskService:
-    """In-memory background task manager for document ingestion."""
+    """基于内存的文档入库后台任务管理器。
+
+    当前实现使用线程和进程内字典保存任务状态，适合单机开发和本地调试。
+    如果后续需要跨进程持久化任务状态，可以把这里替换成数据库或 Redis 实现。
+    """
 
     def __init__(self, ingestion_service: DocumentIngestionService) -> None:
+        """初始化任务存储和并发锁。"""
         self.ingestion_service = ingestion_service
         self._tasks: dict[str, IngestTaskState] = {}
         self._lock = Lock()
 
     def create_task(self, request: DocumentIngestRequest) -> IngestTaskState:
+        """创建新任务并立刻启动后台线程执行。"""
         task_id = uuid4().hex
         task = IngestTaskState(
             task_id=task_id,
@@ -46,6 +52,7 @@ class DocumentIngestTaskService:
         return self.get_task(task_id)
 
     def get_task(self, task_id: str) -> IngestTaskState:
+        """读取任务当前状态，并返回一份快照副本。"""
         with self._lock:
             task = self._tasks.get(task_id)
             if task is None:
@@ -64,6 +71,7 @@ class DocumentIngestTaskService:
             )
 
     def _run_task(self, task_id: str, request: DocumentIngestRequest) -> None:
+        """后台线程入口，负责推进任务执行并更新状态。"""
         self._update_task(
             task_id,
             status="running",
@@ -87,6 +95,7 @@ class DocumentIngestTaskService:
             self._fail_task(task_id, str(exc))
 
     def _complete_task(self, task_id: str, result: IngestionResult) -> None:
+        """将任务标记为成功完成。"""
         with self._lock:
             task = self._tasks[task_id]
             task.status = "completed"
@@ -98,6 +107,7 @@ class DocumentIngestTaskService:
             task.error = None
 
     def _fail_task(self, task_id: str, error: str) -> None:
+        """将任务标记为失败，并记录错误信息。"""
         with self._lock:
             task = self._tasks[task_id]
             task.status = "failed"
@@ -116,6 +126,7 @@ class DocumentIngestTaskService:
         stage: str,
         message: str,
     ) -> None:
+        """更新任务运行中的中间状态。"""
         with self._lock:
             task = self._tasks[task_id]
             task.status = status

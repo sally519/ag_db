@@ -14,11 +14,19 @@ from rag_db.rag import IngestionPipeline
 
 
 class DuplicateDocumentError(ValueError):
-    """Raised when a duplicate document is rejected."""
+    """当文档因重复或高相似策略被拒绝时抛出。"""
 
 
 class DocumentIngestionService:
-    """End-to-end document ingestion workflow."""
+    """文档入库总流程服务。
+
+    这个类串起了整个入库链路：
+    1. 读取文档并抽取文本
+    2. 做精确去重和高相似检测
+    3. 切块并生成向量
+    4. 将文本块和文档级记录写入向量库
+    5. 通过回调实时上报进度
+    """
 
     def __init__(
         self,
@@ -28,6 +36,7 @@ class DocumentIngestionService:
         embedding_client: EmbeddingClient,
         pipeline: IngestionPipeline,
     ) -> None:
+        """注入入库流程依赖。"""
         self.settings = settings
         self.loader = loader
         self.embedding_client = embedding_client
@@ -39,6 +48,11 @@ class DocumentIngestionService:
         *,
         progress_callback: Callable[[str, int, str], None] | None = None,
     ) -> IngestionResult:
+        """执行一次完整的文档入库。
+
+        返回结果不仅包含最终写入信息，还会携带去重和高相似策略的处理结果，
+        便于上层接口直接反馈给调用方。
+        """
         self._report_progress(progress_callback, "loading_document", 10, "Loading source document")
         source_document = self.loader.load(request.source)
         collection_name = request.collection_name or self.settings.default_collection
@@ -174,6 +188,7 @@ class DocumentIngestionService:
         duplicate_match: DuplicateDocumentMatch,
         content_hash: str,
     ) -> IngestionResult | None:
+        """根据重复文档策略决定跳过、拒绝或覆盖旧文档。"""
         if request.duplicate_strategy == "reject":
             raise DuplicateDocumentError(
                 f"duplicate document detected: existing document_id={duplicate_match.document_id}"
@@ -211,6 +226,7 @@ class DocumentIngestionService:
         collection_name: str,
         document_embedding: list[float],
     ) -> DuplicateDocumentMatch | None:
+        """按文档级向量查找高相似旧文档。"""
         if request.similarity_strategy == "off" or request.similarity_threshold is None:
             return None
         return self.pipeline.vector_store.find_similar_document(
@@ -228,6 +244,7 @@ class DocumentIngestionService:
         similar_match: DuplicateDocumentMatch,
         content_hash: str,
     ) -> IngestionResult | None:
+        """根据高相似策略决定跳过、拒绝或替换旧文档。"""
         if request.similarity_strategy == "reject":
             raise DuplicateDocumentError(
                 "similar document detected: "
@@ -270,6 +287,10 @@ class DocumentIngestionService:
         *,
         progress_callback: Callable[[str, int, str], None] | None = None,
     ) -> tuple[list[float], int, str]:
+        """对整篇文档生成一条文档级向量。
+
+        这条向量主要用于高相似文档检测，不直接作为 chunk 召回结果使用。
+        """
         embeddings, dimension, model_name = self.embedding_client.embed_documents_with_progress(
             [text],
             progress_callback=lambda batch_index, total_batches: self._report_progress(
@@ -288,6 +309,7 @@ class DocumentIngestionService:
         progress_percent: int,
         message: str,
     ) -> None:
+        """统一封装进度回调调用。"""
         if progress_callback is not None:
             progress_callback(stage, progress_percent, message)
 
@@ -301,6 +323,7 @@ def _build_chunks(
     content_hash: str,
     metadata: dict[str, object],
 ) -> list[DocumentChunk]:
+    """根据切分后的文本块构造 `DocumentChunk` 列表。"""
     chunks: list[DocumentChunk] = []
     total_chunks = len(texts)
     for index, text in enumerate(texts):
@@ -328,10 +351,12 @@ def _build_chunks(
 
 
 def _build_content_hash(text: str) -> str:
+    """基于标准化文本生成稳定哈希，用于精确去重。"""
     normalized = _normalize_text_for_hash(text)
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _normalize_text_for_hash(text: str) -> str:
+    """统一换行和空白字符，减少格式差异对哈希结果的影响。"""
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     return re.sub(r"\s+", " ", cleaned)

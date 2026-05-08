@@ -5,9 +5,18 @@ from rag_db.models import SearchResult
 
 
 class EmbeddingReranker:
-    """Default local reranker based on query-document embedding similarity."""
+    """基于向量相似度的本地重排器。
+
+    当前实现不依赖单独的 cross-encoder 模型，而是使用：
+    - 查询向量
+    - 候选文档向量
+
+    通过向量点积对候选结果再次排序。这样实现简单、依赖少，
+    也便于在本地环境先跑通完整查询链路。
+    """
 
     def __init__(self, embedding_client: EmbeddingClient) -> None:
+        """注入 embedding 客户端。"""
         self.embedding_client = embedding_client
 
     def rerank(
@@ -17,6 +26,7 @@ class EmbeddingReranker:
         candidates: list[SearchResult],
         top_n: int,
     ) -> list[SearchResult]:
+        """对召回候选进行重排，并只返回前 `top_n` 条。"""
         if not candidates:
             return []
 
@@ -44,6 +54,7 @@ class EmbeddingReranker:
         return rescored[:top_n]
 
     def _resolve_document_embeddings(self, candidates: list[SearchResult]) -> list[list[float]]:
+        """优先复用召回阶段已拿到的向量，必要时才重新向量化文本。"""
         if all(candidate.embedding is not None for candidate in candidates):
             return [list(candidate.embedding) for candidate in candidates if candidate.embedding is not None]
 
@@ -54,4 +65,5 @@ class EmbeddingReranker:
 
 
 def _dot(left: list[float], right: list[float]) -> float:
+    """计算两个向量的点积。"""
     return float(sum(a * b for a, b in zip(left, right, strict=False)))

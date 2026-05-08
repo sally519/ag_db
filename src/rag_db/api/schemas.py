@@ -7,7 +7,9 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class DocumentIngestRequest(BaseModel):
-    source: str = Field(..., min_length=1, description="Local file path, file:// path, or URL.")
+    """文档入库请求体。"""
+
+    source: str = Field(..., min_length=1, description="文档来源，可以是本地路径、file:// 路径或 URL。")
     collection_name: str | None = Field(default=None, min_length=1)
     document_id: str = Field(default_factory=lambda: uuid4().hex)
     chunk_size: int | None = Field(default=None, ge=1)
@@ -20,6 +22,7 @@ class DocumentIngestRequest(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, source: str) -> str:
+        """清理并校验文档来源字符串。"""
         normalized = source.strip()
         if not normalized:
             raise ValueError("source must not be empty")
@@ -27,6 +30,8 @@ class DocumentIngestRequest(BaseModel):
 
 
 class DocumentIngestResponse(BaseModel):
+    """文档入库最终结果。"""
+
     success: bool = True
     document_id: str
     collection_name: str
@@ -48,6 +53,8 @@ class DocumentIngestResponse(BaseModel):
 
 
 class DocumentIngestTaskCreateResponse(BaseModel):
+    """创建异步入库任务后的即时响应。"""
+
     success: bool = True
     task_id: str
     status: str
@@ -60,11 +67,14 @@ class DocumentIngestTaskCreateResponse(BaseModel):
 
 
 class DocumentIngestTaskStatusRequest(BaseModel):
+    """查询异步入库任务状态的请求体。"""
+
     task_id: str = Field(..., min_length=1)
 
     @field_validator("task_id")
     @classmethod
     def validate_task_id(cls, task_id: str) -> str:
+        """校验任务编号不能为空。"""
         normalized = task_id.strip()
         if not normalized:
             raise ValueError("task_id must not be empty")
@@ -72,6 +82,8 @@ class DocumentIngestTaskStatusRequest(BaseModel):
 
 
 class DocumentIngestTaskStatusResponse(BaseModel):
+    """异步入库任务状态响应。"""
+
     success: bool = True
     task_id: str
     status: str
@@ -86,6 +98,8 @@ class DocumentIngestTaskStatusResponse(BaseModel):
 
 
 class DocumentSearchRequest(BaseModel):
+    """文档查询请求体。"""
+
     query: str = Field(..., min_length=1)
     recall_top_k: int = Field(default=10, ge=1, le=100)
     rerank_top_n: int = Field(default=3, ge=1, le=20)
@@ -93,6 +107,7 @@ class DocumentSearchRequest(BaseModel):
     @field_validator("query")
     @classmethod
     def validate_non_empty(cls, value: str) -> str:
+        """确保用户查询内容不是空白字符串。"""
         normalized = value.strip()
         if not normalized:
             raise ValueError("value must not be empty")
@@ -100,6 +115,8 @@ class DocumentSearchRequest(BaseModel):
 
 
 class SearchHitResponse(BaseModel):
+    """单条检索命中结果。"""
+
     chunk_id: str
     collection_name: str
     content: str
@@ -109,6 +126,8 @@ class SearchHitResponse(BaseModel):
 
 
 class DocumentSearchResponse(BaseModel):
+    """查询接口返回结果。"""
+
     success: bool = True
     query: str
     searched_collections: list[str]
