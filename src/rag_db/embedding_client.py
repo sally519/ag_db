@@ -14,18 +14,26 @@ class EmbeddingClient:
     适配成当前 RAG 服务更容易使用的接口：
     - 查询向量化
     - 文档向量化
+    - 文档重排
     - 带进度回调的批量向量化
     - 在导入失败时自动尝试本地源码路径兜底
     """
 
     def __init__(self, settings: Settings) -> None:
-        """初始化 embedding SDK，并在启动时预加载模型。"""
+        """初始化 embedding SDK 和 rerank SDK，并在启动时预加载模型。"""
         self.settings = settings
-        create_embedding_sdk = _load_create_embedding_sdk(self.settings)
+        create_embedding_sdk, create_reranker_sdk = _load_embedding_engine_sdks(self.settings)
         self._sdk = create_embedding_sdk(
             model=self.settings.embedding_model,
             device=self.settings.embedding_device,
             max_length=self.settings.embedding_max_length,
+            cache_dir=self.settings.embedding_cache_dir,
+            batch_size=self.settings.embedding_batch_size,
+            preload=True,
+        )
+        self._reranker_sdk = create_reranker_sdk(
+            device=self.settings.embedding_device,
+            max_length=min(self.settings.embedding_max_length, 1024),
             cache_dir=self.settings.embedding_cache_dir,
             batch_size=self.settings.embedding_batch_size,
             preload=True,
@@ -37,6 +45,37 @@ class EmbeddingClient:
         当前默认复用带进度回调的批量实现，便于后续统一维护批次策略。
         """
         return self.embed_documents_with_progress(texts)
+
+    def rerank_documents(
+        self,
+        *,
+        query: str,
+        documents: list[str],
+        top_n: int,
+    ) -> tuple[list[dict[str, object]], str]:
+        """使用 reranker SDK 对候选文档进行重排。
+
+        返回值包含两部分：
+        - 重排结果列表，每一项至少包含原始索引、文档内容和重排分数
+        - 实际使用的重排模型名称
+        """
+        if not documents:
+            return [], ""
+
+        response = self._reranker_sdk.rerank_documents(
+            query=query,
+            documents=documents,
+            top_n=top_n,
+        )
+        results = [
+            {
+                "index": item.index,
+                "document": item.document,
+                "relevance_score": item.relevance_score,
+            }
+            for item in response.results
+        ]
+        return results, response.model_name
 
     def embed_queries(
         self,
@@ -117,13 +156,13 @@ class EmbeddingClient:
         return 8
 
 
-def _load_create_embedding_sdk(settings: Settings):
-    """导入 `create_embedding_sdk`，并在必要时尝试本地源码路径兜底。"""
+def _load_embedding_engine_sdks(settings: Settings):
+    """导入 embedding 和 rerank SDK 工厂函数，并在必要时尝试本地源码路径兜底。"""
     last_error: Exception | None = None
     try:
-        from embedding_engine import create_embedding_sdk
+        from embedding_engine import create_embedding_sdk, create_reranker_sdk
 
-        return create_embedding_sdk
+        return create_embedding_sdk, create_reranker_sdk
     except ModuleNotFoundError as exc:
         last_error = exc
         candidate_paths = [settings.embedding_engine_src, _default_embedding_engine_src()]
@@ -134,9 +173,9 @@ def _load_create_embedding_sdk(settings: Settings):
             if candidate_str not in sys.path:
                 sys.path.insert(0, candidate_str)
             try:
-                from embedding_engine import create_embedding_sdk
+                from embedding_engine import create_embedding_sdk, create_reranker_sdk
 
-                return create_embedding_sdk
+                return create_embedding_sdk, create_reranker_sdk
             except ModuleNotFoundError as exc:
                 last_error = exc
                 continue

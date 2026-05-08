@@ -7,13 +7,25 @@ class FakeEmbeddingClient:
     def embed_queries(self, texts, *, task_description=None):
         return [[1.0, 0.0]], 2, "fake-model"
 
-    def embed_documents(self, texts):
-        mapping = {
-            "alpha": [1.0, 0.0],
-            "beta": [0.8, 0.2],
-            "gamma": [0.1, 0.9],
+    def rerank_documents(self, *, query, documents, top_n):
+        score_map = {
+            "alpha": 0.95,
+            "beta": 0.7,
+            "gamma": 0.1,
         }
-        return [mapping[text] for text in texts], 2, "fake-model"
+        ranked = sorted(
+            [
+                {
+                    "index": index,
+                    "document": document,
+                    "relevance_score": score_map[document],
+                }
+                for index, document in enumerate(documents)
+            ],
+            key=lambda item: item["relevance_score"],
+            reverse=True,
+        )
+        return ranked[:top_n], "fake-reranker"
 
 
 class FakeRetrievalPipeline:

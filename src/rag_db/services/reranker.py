@@ -5,14 +5,10 @@ from rag_db.models import SearchResult
 
 
 class EmbeddingReranker:
-    """基于向量相似度的本地重排器。
+    """基于 `embedding_engine` reranker SDK 的本地重排器。
 
-    当前实现不依赖单独的 cross-encoder 模型，而是使用：
-    - 查询向量
-    - 候选文档向量
-
-    通过向量点积对候选结果再次排序。这样实现简单、依赖少，
-    也便于在本地环境先跑通完整查询链路。
+    当前实现直接复用兄弟项目新增的 `create_reranker_sdk` 能力，
+    由专门的重排模型对召回候选做语义相关性排序。
     """
 
     def __init__(self, embedding_client: EmbeddingClient) -> None:
@@ -30,13 +26,16 @@ class EmbeddingReranker:
         if not candidates:
             return []
 
-        query_embeddings, _, _ = self.embedding_client.embed_queries([query])
-        query_embedding = query_embeddings[0]
+        reranked_items, _ = self.embedding_client.rerank_documents(
+            query=query,
+            documents=[candidate.content for candidate in candidates],
+            top_n=top_n,
+        )
 
         rescored: list[SearchResult] = []
-        doc_embeddings = self._resolve_document_embeddings(candidates)
-        for candidate, doc_embedding in zip(candidates, doc_embeddings, strict=False):
-            rerank_score = _dot(query_embedding, doc_embedding)
+        for item in reranked_items:
+            candidate = candidates[int(item["index"])]
+            rerank_score = float(item["relevance_score"])
             rescored.append(
                 SearchResult(
                     chunk_id=candidate.chunk_id,
@@ -52,18 +51,3 @@ class EmbeddingReranker:
 
         rescored.sort(key=lambda item: item.rerank_score or float("-inf"), reverse=True)
         return rescored[:top_n]
-
-    def _resolve_document_embeddings(self, candidates: list[SearchResult]) -> list[list[float]]:
-        """优先复用召回阶段已拿到的向量，必要时才重新向量化文本。"""
-        if all(candidate.embedding is not None for candidate in candidates):
-            return [list(candidate.embedding) for candidate in candidates if candidate.embedding is not None]
-
-        doc_embeddings, _, _ = self.embedding_client.embed_documents(
-            [candidate.content for candidate in candidates]
-        )
-        return doc_embeddings
-
-
-def _dot(left: list[float], right: list[float]) -> float:
-    """计算两个向量的点积。"""
-    return float(sum(a * b for a, b in zip(left, right, strict=False)))
