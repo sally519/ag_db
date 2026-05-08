@@ -8,7 +8,13 @@ version = "0.1.0"
 description = "Python-first vector database and RAG experimentation project."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "chromadb>=0.5.5",
+    "pypdf>=5.0.0",
+    "pydantic>=2.9.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -28,4 +34,3 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-
