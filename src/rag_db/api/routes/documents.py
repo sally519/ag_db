@@ -2,15 +2,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from rag_db.api.dependencies import get_document_ingest_task_service
+from rag_db.api.dependencies import (
+    get_document_ingest_task_service,
+    get_document_search_service,
+)
 from rag_db.api.schemas import (
     DocumentIngestRequest,
     DocumentIngestResponse,
+    DocumentSearchRequest,
+    DocumentSearchResponse,
     DocumentIngestTaskCreateResponse,
     DocumentIngestTaskStatusRequest,
     DocumentIngestTaskStatusResponse,
+    SearchHitResponse,
 )
 from rag_db.services.ingest_tasks import DocumentIngestTaskService, IngestTaskNotFoundError
+from rag_db.services.search import DocumentSearchService
 
 
 router = APIRouter()
@@ -81,4 +88,40 @@ def get_ingest_task_status(
         elapsed_seconds=_elapsed_seconds(task),
         error=task.error,
         result=result,
+    )
+
+
+@router.post("/search", response_model=DocumentSearchResponse)
+def search_documents(
+    request: DocumentSearchRequest,
+    service: DocumentSearchService = Depends(get_document_search_service),
+) -> DocumentSearchResponse:
+    hits = service.search(
+        query=request.query,
+        recall_top_k=request.recall_top_k,
+        rerank_top_n=request.rerank_top_n,
+    )
+    searched_collections = sorted(
+        {
+            hit.collection_name
+            for hit in hits
+            if hit.collection_name
+        }
+    )
+    return DocumentSearchResponse(
+        query=request.query,
+        searched_collections=searched_collections,
+        recall_top_k=request.recall_top_k,
+        rerank_top_n=request.rerank_top_n,
+        hits=[
+            SearchHitResponse(
+                chunk_id=hit.chunk_id,
+                collection_name=hit.collection_name or "",
+                content=hit.content,
+                metadata=hit.metadata,
+                recall_score=hit.recall_score or 0.0,
+                rerank_score=hit.rerank_score or hit.score,
+            )
+            for hit in hits
+        ],
     )

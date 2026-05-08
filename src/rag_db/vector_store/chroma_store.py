@@ -32,6 +32,16 @@ class ChromaVectorStore(VectorStore):
             metadatas=[_normalize_metadata(chunk.metadata) for chunk in chunks],
         )
 
+    def list_searchable_collections(self) -> list[str]:
+        collections = self.client.list_collections()
+        names: list[str] = []
+        for item in collections:
+            name = item if isinstance(item, str) else getattr(item, "name", "")
+            if not name or name.endswith("__documents"):
+                continue
+            names.append(str(name))
+        return sorted(set(names))
+
     def search(
         self,
         *,
@@ -43,23 +53,28 @@ class ChromaVectorStore(VectorStore):
         result = collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
+            include=["documents", "metadatas", "distances", "embeddings"],
         )
         ids = result.get("ids", [[]])[0]
         documents = result.get("documents", [[]])[0]
         distances = result.get("distances", [[]])[0]
         metadatas = result.get("metadatas", [[]])[0]
+        embeddings = result.get("embeddings", [[]])[0]
         return [
             SearchResult(
                 chunk_id=chunk_id,
                 score=distance,
                 content=document,
+                collection_name=collection_name,
+                embedding=embedding,
                 metadata=metadata or {},
             )
-            for chunk_id, document, distance, metadata in zip(
+            for chunk_id, document, distance, metadata, embedding in zip(
                 ids,
                 documents,
                 distances,
                 metadatas,
+                embeddings,
                 strict=False,
             )
         ]

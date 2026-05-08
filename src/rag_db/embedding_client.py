@@ -25,6 +25,23 @@ class EmbeddingClient:
     def embed_documents(self, texts: list[str]) -> tuple[list[list[float]], int, str]:
         return self.embed_documents_with_progress(texts)
 
+    def embed_queries(
+        self,
+        texts: list[str],
+        *,
+        task_description: str | None = None,
+    ) -> tuple[list[list[float]], int, str]:
+        if not texts:
+            return [], 0, self.settings.embedding_model
+
+        response = self._sdk.embed_texts(
+            texts=texts,
+            type="query",
+            output_dimension=self.settings.embedding_output_dimension,
+            task_description=task_description,
+        )
+        return response.embeddings, response.dimension, response.model_name
+
     def embed_documents_with_progress(
         self,
         texts: list[str],

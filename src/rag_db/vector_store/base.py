@@ -9,6 +9,10 @@ class VectorStore(ABC):
     """Abstract vector store interface for future implementations."""
 
     @abstractmethod
+    def list_searchable_collections(self) -> list[str]:
+        raise NotImplementedError
+
+    @abstractmethod
     def upsert(
         self,
         *,

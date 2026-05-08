@@ -83,3 +83,35 @@ class DocumentIngestTaskStatusResponse(BaseModel):
     elapsed_seconds: float
     error: str | None = None
     result: DocumentIngestResponse | None = None
+
+
+class DocumentSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1)
+    recall_top_k: int = Field(default=10, ge=1, le=100)
+    rerank_top_n: int = Field(default=3, ge=1, le=20)
+
+    @field_validator("query")
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be empty")
+        return normalized
+
+
+class SearchHitResponse(BaseModel):
+    chunk_id: str
+    collection_name: str
+    content: str
+    metadata: dict[str, Any]
+    recall_score: float
+    rerank_score: float
+
+
+class DocumentSearchResponse(BaseModel):
+    success: bool = True
+    query: str
+    searched_collections: list[str]
+    recall_top_k: int
+    rerank_top_n: int
+    hits: list[SearchHitResponse]

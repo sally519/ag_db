@@ -124,3 +124,50 @@ uvicorn rag_db.app:app --host 127.0.0.1 --port 8001 --app-dir src
 ```
 
 含义是：如果新文档与库内已有文档的文档级相似度 `>= 0.98`，则默认跳过入库，避免高相似文档造成冗余。
+
+## 查询接口
+
+`POST /api/documents/search`
+
+查询流程：
+
+1. 先做向量召回，默认取 `10` 条
+2. 再对这 `10` 条做 rerank
+3. 最终默认返回 `3` 条
+
+请求示例：
+
+```json
+{
+  "query": "评优评先申报时间是什么",
+  "recall_top_k": 10,
+  "rerank_top_n": 3
+}
+```
+
+响应示例：
+
+```json
+{
+  "success": true,
+  "query": "评优评先申报时间是什么",
+  "searched_collections": [
+    "company_docs",
+    "policy_docs"
+  ],
+  "recall_top_k": 10,
+  "rerank_top_n": 3,
+  "hits": [
+    {
+      "chunk_id": "notice-2025-01:0",
+      "collection_name": "company_docs",
+      "content": "......",
+      "metadata": {
+        "document_id": "notice-2025-01"
+      },
+      "recall_score": 0.84,
+      "rerank_score": 0.92
+    }
+  ]
+}
+```

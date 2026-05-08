@@ -58,7 +58,11 @@ class SearchResult:
     chunk_id: str
     score: float
     content: str
+    collection_name: str | None = None
+    embedding: list[float] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    recall_score: float | None = None
+    rerank_score: float | None = None
 
 
 @dataclass(slots=True)

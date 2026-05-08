@@ -10,6 +10,9 @@ class RetrievalPipeline:
     def __init__(self, vector_store: VectorStore) -> None:
         self.vector_store = vector_store
 
+    def list_searchable_collections(self) -> list[str]:
+        return self.vector_store.list_searchable_collections()
+
     def retrieve(
         self,
         *,
