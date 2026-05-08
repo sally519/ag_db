@@ -14,6 +14,9 @@ from rag_db.vector_store.base import VectorStore
 
 
 class FakeVectorStore(VectorStore):
+    def list_searchable_collections(self) -> list[str]:
+        return []
+
     def upsert(self, *, collection_name: str, chunks, embeddings) -> None:
         return None
 
@@ -86,7 +89,7 @@ def test_task_service_completes_in_background() -> None:
             embedding_client=FakeEmbeddingClient(),
             pipeline=IngestionPipeline(FakeVectorStore()),
         )
-        task_service = DocumentIngestTaskService(ingestion_service)
+        task_service = DocumentIngestTaskService(ingestion_service, settings=settings)
 
         task = task_service.create_task(
             DocumentIngestRequest(

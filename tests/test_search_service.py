@@ -1,6 +1,9 @@
+from threading import BoundedSemaphore
+
+from rag_db.config import Settings
 from rag_db.models import SearchResult
 from rag_db.services.reranker import EmbeddingReranker
-from rag_db.services.search import DocumentSearchService
+from rag_db.services.search import DocumentSearchService, SearchConcurrencyLimitError
 
 
 class FakeEmbeddingClient:
@@ -49,6 +52,7 @@ class FakeRetrievalPipeline:
 
 def test_search_service_reranks_and_limits_results() -> None:
     service = DocumentSearchService(
+        settings=Settings(),
         retrieval_pipeline=FakeRetrievalPipeline(),
         embedding_client=FakeEmbeddingClient(),
         reranker=EmbeddingReranker(FakeEmbeddingClient()),
@@ -64,3 +68,23 @@ def test_search_service_reranks_and_limits_results() -> None:
     assert hits[0].rerank_score >= hits[1].rerank_score >= hits[2].rerank_score
     assert all(item.recall_score is not None for item in hits)
     assert {item.collection_name for item in hits} == {"docs", "policies"}
+
+
+def test_search_service_rejects_when_concurrency_limit_is_reached() -> None:
+    service = DocumentSearchService(
+        settings=Settings(max_search_concurrency=1),
+        retrieval_pipeline=FakeRetrievalPipeline(),
+        embedding_client=FakeEmbeddingClient(),
+        reranker=EmbeddingReranker(FakeEmbeddingClient()),
+    )
+    service._slots = BoundedSemaphore(value=1)
+    assert service._slots.acquire(blocking=False) is True
+
+    try:
+        try:
+            service.search(query="find alpha")
+            assert False, "expected SearchConcurrencyLimitError"
+        except SearchConcurrencyLimitError:
+            pass
+    finally:
+        service._slots.release()

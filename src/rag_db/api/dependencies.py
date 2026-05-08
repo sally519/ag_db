@@ -40,7 +40,10 @@ def get_document_ingestion_service() -> DocumentIngestionService:
 @lru_cache(maxsize=1)
 def get_document_ingest_task_service() -> DocumentIngestTaskService:
     """构造并缓存异步入库任务服务。"""
-    return DocumentIngestTaskService(get_document_ingestion_service())
+    return DocumentIngestTaskService(
+        get_document_ingestion_service(),
+        settings=get_settings(),
+    )
 
 
 @lru_cache(maxsize=1)
@@ -56,6 +59,7 @@ def get_document_search_service() -> DocumentSearchService:
     embedding_client = EmbeddingClient(settings)
     reranker = EmbeddingReranker(embedding_client)
     return DocumentSearchService(
+        settings=settings,
         retrieval_pipeline=retrieval_pipeline,
         embedding_client=embedding_client,
         reranker=reranker,

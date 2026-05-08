@@ -17,7 +17,7 @@ from rag_db.api.schemas import (
     SearchHitResponse,
 )
 from rag_db.services.ingest_tasks import DocumentIngestTaskService, IngestTaskNotFoundError
-from rag_db.services.search import DocumentSearchService
+from rag_db.services.search import DocumentSearchService, SearchConcurrencyLimitError
 
 
 router = APIRouter()
@@ -108,11 +108,14 @@ def search_documents(
     当前查询逻辑会在所有可搜索集合中做召回，
     然后对召回候选统一重排，最后返回重排后的结果。
     """
-    hits = service.search(
-        query=request.query,
-        recall_top_k=request.recall_top_k,
-        rerank_top_n=request.rerank_top_n,
-    )
+    try:
+        hits = service.search(
+            query=request.query,
+            recall_top_k=request.recall_top_k,
+            rerank_top_n=request.rerank_top_n,
+        )
+    except SearchConcurrencyLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
     searched_collections = sorted(
         {
             hit.collection_name

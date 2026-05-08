@@ -52,6 +52,8 @@ class Settings:
     embedding_output_dimension: int | None = _read_optional_int(
         "RAG_DB_EMBEDDING_OUTPUT_DIMENSION"
     )
+    max_ingest_concurrency: int = int(os.getenv("RAG_DB_MAX_INGEST_CONCURRENCY", "5"))
+    max_search_concurrency: int = int(os.getenv("RAG_DB_MAX_SEARCH_CONCURRENCY", "5"))
     embedding_engine_src: Path | None = field(
         default_factory=lambda: _read_optional_path("RAG_DB_EMBEDDING_ENGINE_SRC")
     )

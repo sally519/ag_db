@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from threading import Lock, Thread
+from threading import BoundedSemaphore, Lock, Thread
 from uuid import uuid4
 
 from rag_db.api.schemas import DocumentIngestRequest
+from rag_db.config import Settings
 from rag_db.models import IngestTaskState, IngestionResult
 from rag_db.services.document_ingestion import DocumentIngestionService
 
@@ -20,11 +21,22 @@ class DocumentIngestTaskService:
     如果后续需要跨进程持久化任务状态，可以把这里替换成数据库或 Redis 实现。
     """
 
-    def __init__(self, ingestion_service: DocumentIngestionService) -> None:
-        """初始化任务存储和并发锁。"""
+    def __init__(
+        self,
+        ingestion_service: DocumentIngestionService,
+        *,
+        settings: Settings,
+    ) -> None:
+        """初始化任务存储、并发锁和入库执行槽位。
+
+        `max_ingest_concurrency` 控制真正处于运行中的后台入库任务数量。
+        超出的任务会保持排队状态，直到有空闲槽位。
+        """
         self.ingestion_service = ingestion_service
+        self.settings = settings
         self._tasks: dict[str, IngestTaskState] = {}
         self._lock = Lock()
+        self._slots = BoundedSemaphore(value=self.settings.max_ingest_concurrency)
 
     def create_task(self, request: DocumentIngestRequest) -> IngestTaskState:
         """创建新任务并立刻启动后台线程执行。"""
@@ -74,6 +86,17 @@ class DocumentIngestTaskService:
         """后台线程入口，负责推进任务执行并更新状态。"""
         self._update_task(
             task_id,
+            status="pending",
+            progress_percent=0,
+            stage="queued",
+            message=(
+                f"Waiting for ingest slot "
+                f"(max_concurrency={self.settings.max_ingest_concurrency})"
+            ),
+        )
+        self._slots.acquire()
+        self._update_task(
+            task_id,
             status="running",
             progress_percent=5,
             stage="starting",
@@ -93,6 +116,8 @@ class DocumentIngestTaskService:
             self._complete_task(task_id, result)
         except Exception as exc:
             self._fail_task(task_id, str(exc))
+        finally:
+            self._slots.release()
 
     def _complete_task(self, task_id: str, result: IngestionResult) -> None:
         """将任务标记为成功完成。"""

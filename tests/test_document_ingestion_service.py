@@ -22,6 +22,9 @@ class FakeVectorStore(VectorStore):
         self.similar_match = None
         self.document_records = []
 
+    def list_searchable_collections(self) -> list[str]:
+        return []
+
     def upsert(self, *, collection_name: str, chunks, embeddings) -> None:
         self.collection_name = collection_name
         self.chunks = chunks
@@ -84,6 +87,12 @@ class FakeEmbeddingClient(EmbeddingClient):
 
     def embed_documents(self, texts: list[str]) -> tuple[list[list[float]], int, str]:
         return [[0.1, 0.2] for _ in texts], 2, "fake-model"
+
+    def embed_documents_with_progress(self, texts, *, progress_callback=None):
+        embeddings = [[0.1, 0.2] for _ in texts]
+        if progress_callback is not None and texts:
+            progress_callback(len(texts), len(texts))
+        return embeddings, 2, "fake-model"
 
 
 def test_document_ingestion_service_ingests_local_text(tmp_path: Path) -> None:

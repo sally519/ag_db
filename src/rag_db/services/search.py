@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from threading import BoundedSemaphore
+
+from rag_db.config import Settings
 from rag_db.embedding_client import EmbeddingClient
 from rag_db.models import SearchResult
 from rag_db.rag import RetrievalPipeline
 from rag_db.services.reranker import EmbeddingReranker
+
+
+class SearchConcurrencyLimitError(RuntimeError):
+    """搜索并发超出上限时抛出。"""
 
 
 class DocumentSearchService:
@@ -19,14 +26,17 @@ class DocumentSearchService:
     def __init__(
         self,
         *,
+        settings: Settings,
         retrieval_pipeline: RetrievalPipeline,
         embedding_client: EmbeddingClient,
         reranker: EmbeddingReranker,
     ) -> None:
         """注入召回、向量化和重排依赖。"""
+        self.settings = settings
         self.retrieval_pipeline = retrieval_pipeline
         self.embedding_client = embedding_client
         self.reranker = reranker
+        self._slots = BoundedSemaphore(value=self.settings.max_search_concurrency)
 
     def search(
         self,
@@ -41,30 +51,38 @@ class DocumentSearchService:
         每个集合先取自己的候选，最终会汇总后再裁剪为全局前 `recall_top_k` 条，
         然后进入重排阶段。
         """
-        query_embeddings, _, _ = self.embedding_client.embed_queries([query])
-        collections = self.retrieval_pipeline.list_searchable_collections()
-        normalized: list[SearchResult] = []
-        for collection_name in collections:
-            recalled = self.retrieval_pipeline.retrieve(
-                collection_name=collection_name,
-                query_embedding=query_embeddings[0],
-                top_k=recall_top_k,
+        if not self._slots.acquire(blocking=False):
+            raise SearchConcurrencyLimitError(
+                f"search concurrency limit exceeded: {self.settings.max_search_concurrency}"
             )
-            normalized.extend(
-                SearchResult(
-                    chunk_id=item.chunk_id,
-                    score=_distance_to_similarity(item.score),
-                    content=item.content,
+
+        try:
+            query_embeddings, _, _ = self.embedding_client.embed_queries([query])
+            collections = self.retrieval_pipeline.list_searchable_collections()
+            normalized: list[SearchResult] = []
+            for collection_name in collections:
+                recalled = self.retrieval_pipeline.retrieve(
                     collection_name=collection_name,
-                    embedding=item.embedding,
-                    metadata=dict(item.metadata),
-                    recall_score=_distance_to_similarity(item.score),
+                    query_embedding=query_embeddings[0],
+                    top_k=recall_top_k,
                 )
-                for item in recalled
-            )
-        normalized.sort(key=lambda item: item.recall_score or 0.0, reverse=True)
-        normalized = normalized[:recall_top_k]
-        return self.reranker.rerank(query=query, candidates=normalized, top_n=rerank_top_n)
+                normalized.extend(
+                    SearchResult(
+                        chunk_id=item.chunk_id,
+                        score=_distance_to_similarity(item.score),
+                        content=item.content,
+                        collection_name=collection_name,
+                        embedding=item.embedding,
+                        metadata=dict(item.metadata),
+                        recall_score=_distance_to_similarity(item.score),
+                    )
+                    for item in recalled
+                )
+            normalized.sort(key=lambda item: item.recall_score or 0.0, reverse=True)
+            normalized = normalized[:recall_top_k]
+            return self.reranker.rerank(query=query, candidates=normalized, top_n=rerank_top_n)
+        finally:
+            self._slots.release()
 
 
 def _distance_to_similarity(distance: float) -> float:
